@@ -69,7 +69,7 @@ fun QuizScreen(
             )
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = { (state.currentIndex + 1).toFloat() / state.totalCount.toFloat() },
+                progress = (state.currentIndex + 1).toFloat() / state.totalCount.toFloat(),
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(4.dp))

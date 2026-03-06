@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mathapp.data.MathOperation
 import com.mathapp.data.ProgressRepository
@@ -32,8 +34,8 @@ fun JourneyScreen(
     repository: ProgressRepository,
     onBack: () -> Unit
 ) {
-    val vm: JourneyViewModel = viewModel(factory = androidx.lifecycle.viewmodel.initializer {
-        JourneyViewModel(repository)
+    val vm: JourneyViewModel = viewModel(factory = object : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = JourneyViewModel(repository) as T
     })
     val state by vm.state.collectAsState()
 
@@ -224,7 +226,7 @@ fun StrugglingRow(stats: QuestionStats) {
             }
             // Small error bar
             LinearProgressIndicator(
-                progress = { stats.recentErrorRate },
+                progress = stats.recentErrorRate,
                 modifier = Modifier.width(60.dp),
                 color = Red
             )

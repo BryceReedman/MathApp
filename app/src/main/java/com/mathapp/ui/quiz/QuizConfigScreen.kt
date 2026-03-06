@@ -1,6 +1,7 @@
 package com.mathapp.ui.quiz
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,7 +16,7 @@ import com.mathapp.data.MathOperation
 import com.mathapp.data.ProgressRepository
 import com.mathapp.data.QuestionGroups
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun QuizConfigScreen(
     operation: MathOperation,

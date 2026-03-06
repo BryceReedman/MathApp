@@ -11,6 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mathapp.data.MathOperation
 import com.mathapp.data.ProgressRepository
@@ -22,8 +24,8 @@ fun HomeScreen(
     onOperationSelected: (MathOperation) -> Unit,
     onJourney: () -> Unit
 ) {
-    val vm: HomeViewModel = viewModel(factory = androidx.lifecycle.viewmodel.initializer {
-        HomeViewModel(repository)
+    val vm: HomeViewModel = viewModel(factory = object : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = HomeViewModel(repository) as T
     })
     val accuracyMap by vm.accuracyMap.collectAsState()
 

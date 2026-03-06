@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.MathApp" parent="Theme.Material3.DayNight.NoActionBar" />
+    <style name="Theme.MathApp" parent="android:Theme.Light.NoTitleBar" />
 </resources>
