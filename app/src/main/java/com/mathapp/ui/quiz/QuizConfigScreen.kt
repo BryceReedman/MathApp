@@ -25,7 +25,8 @@ fun QuizConfigScreen(
 ) {
     val allGroups = QuestionGroups.forOperation(operation)
     var selectedGroupIds by remember { mutableStateOf(QuestionGroups.defaultSelected(operation).toSet()) }
-    var selectedCount by remember { mutableStateOf(10) }
+    // null = "All"
+    var selectedCount by remember { mutableStateOf<Int?>(10) }
     var strugglingOnly by remember { mutableStateOf(false) }
 
     // Recompute struggling count whenever selected groups change
@@ -93,6 +94,11 @@ fun QuizConfigScreen(
                         label    = { Text(count.toString()) }
                     )
                 }
+                FilterChip(
+                    selected = selectedCount == null,
+                    onClick  = { selectedCount = null },
+                    label    = { Text("All") }
+                )
             }
 
             // ── Struggling toggle ────────────────────────────────────────────
@@ -142,7 +148,13 @@ fun QuizConfigScreen(
             Spacer(Modifier.weight(1f))
 
             Button(
-                onClick = { onStartQuiz(selectedGroupIds.sorted(), selectedCount, strugglingOnly) },
+                onClick = {
+                    val groups = selectedGroupIds.sorted()
+                    val count = selectedCount
+                        ?: if (strugglingOnly) repository.getStrugglingCount(operation, groups)
+                        else QuestionGroups.totalQuestionCount(operation, groups)
+                    onStartQuiz(groups, count.coerceAtLeast(1), strugglingOnly)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
