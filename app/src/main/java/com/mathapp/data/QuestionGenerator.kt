@@ -37,12 +37,12 @@ object QuestionGenerator {
         val range = QuestionGroups.groupRange(groupId)
         return when (operation) {
             MathOperation.MULTIPLICATION -> range.flatMap { a ->
-                (1..12).map { b ->
+                range.map { b ->
                     Question("$a \u00d7 $b", (a * b).toDouble(), operation, groupId)
                 }
             }
             MathOperation.DIVISION -> range.flatMap { divisor ->
-                (1..12).map { quotient ->
+                range.map { quotient ->
                     Question(
                         "${divisor * quotient} \u00f7 $divisor",
                         quotient.toDouble(),
@@ -67,12 +67,20 @@ object QuestionGenerator {
     private fun isExcludedQuestion(question: Question, excluded: Set<Int>): Boolean {
         if (excluded.isEmpty()) return false
         val text = question.questionText
-        val num = when (question.operationType) {
-            MathOperation.MULTIPLICATION -> text.substringBefore(" \u00d7").toIntOrNull()
-            MathOperation.DIVISION       -> text.substringAfterLast("\u00f7 ").trim().toIntOrNull()
-            MathOperation.POWERS         -> text.substringBefore("^").toIntOrNull()
-            MathOperation.FRACTIONS      -> text.substringAfterLast("/").toIntOrNull()
+        return when (question.operationType) {
+            MathOperation.MULTIPLICATION -> {
+                val a = text.substringBefore(" \u00d7").toIntOrNull()
+                val b = text.substringAfter("\u00d7 ").toIntOrNull()
+                (a != null && a in excluded) || (b != null && b in excluded)
+            }
+            MathOperation.DIVISION -> {
+                val divisor = text.substringAfterLast("\u00f7 ").trim().toIntOrNull()
+                val dividend = text.substringBefore(" \u00f7").toIntOrNull()
+                val quotient = if (divisor != null && divisor != 0 && dividend != null) dividend / divisor else null
+                (divisor != null && divisor in excluded) || (quotient != null && quotient in excluded)
+            }
+            MathOperation.POWERS    -> text.substringBefore("^").toIntOrNull() in excluded
+            MathOperation.FRACTIONS -> text.substringAfterLast("/").toIntOrNull() in excluded
         }
-        return num != null && num in excluded
     }
 }

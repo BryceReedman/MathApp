@@ -26,10 +26,11 @@ object QuestionGroups {
 
     private fun questionCountForGroup(op: MathOperation, groupId: Int): Int {
         val range = groupRange(groupId)
+        val n = range.count()
         return when (op) {
-            MathOperation.MULTIPLICATION -> range.count() * 12
-            MathOperation.DIVISION       -> range.count() * 12
-            MathOperation.POWERS         -> range.count() * 3   // exp 2..4
+            MathOperation.MULTIPLICATION -> n * n
+            MathOperation.DIVISION       -> n * n
+            MathOperation.POWERS         -> n * 3   // exp 2..4
             MathOperation.FRACTIONS      -> range.filter { it > 1 }.sumOf { it - 1 }
         }
     }
