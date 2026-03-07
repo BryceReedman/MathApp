@@ -1,6 +1,7 @@
 package com.mathapp.data
 
 import kotlin.math.pow
+import kotlin.math.sqrt
 
 object QuestionGenerator {
 
@@ -47,15 +48,53 @@ object QuestionGenerator {
                     )
                 }
             }
+            MathOperation.ADDITION -> factors.flatMap { a ->
+                (1..12).map { b ->
+                    Question("$a + $b", (a + b).toDouble(), operation, 0)
+                }
+            }
+            MathOperation.SUBTRACTION -> factors.flatMap { a ->
+                (1..minOf(12, a - 1)).map { b ->
+                    Question("$a \u2212 $b", (a - b).toDouble(), operation, 0)
+                }
+            }.filter { it.correctAnswer >= 0 }
             MathOperation.POWERS -> factors.flatMap { base ->
                 (2..4).map { exp ->
                     Question("$base^$exp", base.toDouble().pow(exp.toDouble()), operation, 0)
                 }
+            }
+            MathOperation.SQUARE_ROOTS -> factors.map { n ->
+                // n is the answer (root), question is √(n²)
+                val radicand = n * n
+                Question("\u221a$radicand", n.toDouble(), operation, 0)
+            }
+            MathOperation.CUBE_ROOTS -> factors.map { n ->
+                // n is the answer (cube root), question is ∛(n³)
+                val radicand = n * n * n
+                Question("\u221b$radicand", n.toDouble(), operation, 0)
             }
             MathOperation.FRACTIONS -> factors.filter { it > 1 }.flatMap { denom ->
                 (1 until denom).map { num ->
                     Question("$num/$denom", num.toDouble() / denom.toDouble(), operation, 0)
                 }
             }
+            MathOperation.PERCENTAGES -> QuestionGroups.STANDARD_PERCENTAGES.flatMap { pct ->
+                factors.map { n ->
+                    val answer = n * pct / 100.0
+                    Question("$pct% of $n", answer, operation, 0)
+                }
+            }
+            MathOperation.FACTORIZATION -> factors
+                .filter { n -> n > 1 && QuestionGroups.hasProperFactorPair(n) }
+                .map { n ->
+                    Question(
+                        questionText  = "$n = ? \u00d7 ?",
+                        correctAnswer = n.toDouble(),
+                        operationType = operation,
+                        groupId       = 0,
+                        questionKey   = "FACTORIZATION_$n"
+                    )
+                }
+            MathOperation.MIXED -> emptyList()  // handled by initializeMixed in QuizViewModel
         }
 }

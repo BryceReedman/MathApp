@@ -1,12 +1,10 @@
 package com.mathapp.ui.journey
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,8 +34,7 @@ private val Yellow = Color(0xFFFFC107)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JourneyScreen(
-    repository: ProgressRepository,
-    onBack: () -> Unit
+    repository: ProgressRepository
 ) {
     val vm: JourneyViewModel = viewModel(factory = object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = JourneyViewModel(repository) as T
@@ -46,118 +43,106 @@ fun JourneyScreen(
 
     LaunchedEffect(Unit) { vm.selectOperation(MathOperation.MULTIPLICATION) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Journey") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        // ── Operation selector ───────────────────────────────────────────
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // ── Operation selector ───────────────────────────────────────────
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MathOperation.entries.forEach { op ->
-                    FilterChip(
-                        selected = state.selectedOperation == op,
-                        onClick  = { vm.selectOperation(op) },
-                        label    = { Text(op.symbol) }
-                    )
-                }
+            JOURNEY_OPERATIONS.forEach { op ->
+                FilterChip(
+                    selected = state.selectedOperation == op,
+                    onClick  = { vm.selectOperation(op) },
+                    label    = { Text(op.symbol) }
+                )
+            }
+        }
+
+        // ── Group performance ────────────────────────────────────────────
+        if (state.groupStats.isNotEmpty()) {
+            Text("Group performance", style = MaterialTheme.typography.titleLarge)
+            GroupPerformanceRow(state.groupStats)
+        }
+
+        // ── Stats summary ────────────────────────────────────────────────
+        if (state.totalAnswered > 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StatCard(
+                    label = "Answered",
+                    value = state.totalAnswered.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+                StatCard(
+                    label = "Accuracy",
+                    value = "%.0f%%".format(state.overallAccuracy),
+                    modifier = Modifier.weight(1f)
+                )
+                StatCard(
+                    label = "Avg time",
+                    value = "%.1fs".format(state.overallAvgTimeMs / 1000.0),
+                    modifier = Modifier.weight(1f)
+                )
             }
 
-            // ── Group performance ────────────────────────────────────────────
-            if (state.groupStats.isNotEmpty()) {
-                Text("Group performance", style = MaterialTheme.typography.headlineMedium)
-                GroupPerformanceRow(state.groupStats)
+            // ── Accuracy line graph ──────────────────────────────────────
+            if (state.sessionHistory.size >= 2) {
+                Text("Accuracy over time", style = MaterialTheme.typography.titleLarge)
+                AccuracyGraph(
+                    sessions   = state.sessionHistory.takeLast(20),
+                    milestones = state.milestones,
+                    modifier   = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                )
             }
 
-            // ── Stats summary ────────────────────────────────────────────────
-            if (state.totalAnswered > 0) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    StatCard(
-                        label = "Answered",
-                        value = state.totalAnswered.toString(),
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatCard(
-                        label = "Accuracy",
-                        value = "%.0f%%".format(state.overallAccuracy),
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatCard(
-                        label = "Avg time",
-                        value = "%.1fs".format(state.overallAvgTimeMs / 1000.0),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                // ── Accuracy line graph ──────────────────────────────────────
-                if (state.sessionHistory.size >= 2) {
-                    Text("Accuracy over time", style = MaterialTheme.typography.headlineMedium)
-                    AccuracyGraph(
-                        sessions  = state.sessionHistory.takeLast(20),
-                        milestones = state.milestones,
-                        modifier  = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                    )
-                }
-
-                // ── Struggling questions ─────────────────────────────────────
-                if (state.strugglingQuestions.isNotEmpty()) {
-                    Text(
-                        "Struggling questions (${state.strugglingQuestions.size})",
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                    state.strugglingQuestions.take(15).forEach { stats ->
-                        StrugglingRow(stats)
-                    }
-                } else {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = Green.copy(alpha = 0.1f)
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                "No struggling questions",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Green
-                            )
-                        }
-                    }
+            // ── Struggling questions ─────────────────────────────────────
+            if (state.strugglingQuestions.isNotEmpty()) {
+                Text(
+                    "Struggling questions (${state.strugglingQuestions.size})",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                state.strugglingQuestions.take(15).forEach { stats ->
+                    StrugglingRow(stats)
                 }
             } else {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Complete a quiz to see your journey",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = Green.copy(alpha = 0.1f)
                     )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "No struggling questions",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Green
+                        )
+                    }
                 }
+            }
+        } else {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Complete a quiz to see your journey",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
             }
         }
     }
@@ -194,8 +179,15 @@ fun GroupPerformanceRow(groupStats: List<GroupStat>) {
                     if (stat.accuracy >= 0f) {
                         Text(
                             "%.0f%%".format(stat.accuracy),
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = labelColor.copy(alpha = 0.8f)
+                        )
+                    }
+                    stat.speedRecord?.let { ms ->
+                        Text(
+                            "\uD83C\uDFC6 %.1fs".format(ms / 1000.0),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = labelColor.copy(alpha = 0.7f)
                         )
                     }
                 }
@@ -211,8 +203,8 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
             modifier = Modifier.padding(12.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
         }
     }
 }
@@ -234,36 +226,30 @@ fun AccuracyGraph(
             val w = size.width
             val h = size.height
             val padBottom = 20f
-            val padTop    = 20f   // room for milestone triangles
+            val padTop    = 20f
             val plotH = h - padBottom - padTop
 
-            // Axis
             drawLine(Color.LightGray, Offset(0f, padTop), Offset(0f, padTop + plotH), strokeWidth = 1f)
             drawLine(Color.LightGray, Offset(0f, padTop + plotH), Offset(w, padTop + plotH), strokeWidth = 1f)
 
-            // Data points
             val points = sessions.mapIndexed { i, s ->
                 val x = if (sessions.size == 1) w / 2f else i.toFloat() / (sessions.size - 1) * w
                 val y = padTop + plotH - (s.accuracy / 100f * plotH)
                 Offset(x, y)
             }
 
-            // Polyline
             val path = Path().apply {
                 moveTo(points[0].x, points[0].y)
                 points.drop(1).forEach { lineTo(it.x, it.y) }
             }
             drawPath(path, primaryColor, style = Stroke(width = 3f, cap = StrokeCap.Round))
 
-            // Dots
             points.forEach { pt ->
                 drawCircle(primaryColor, radius = 5f, center = pt)
                 drawCircle(Color.White, radius = 3f, center = pt)
             }
 
-            // Milestone markers (upward triangles above the graph line)
             milestones.forEach { milestone ->
-                // Find nearest session index by timestamp
                 val idx = sessions.indexOfFirst { it.timestampMs >= milestone.timestampMs }
                     .takeIf { it >= 0 } ?: return@forEach
                 val x = if (sessions.size == 1) w / 2f else idx.toFloat() / (sessions.size - 1) * w
@@ -305,7 +291,7 @@ fun StrugglingRow(stats: QuestionStats) {
                         stats.recentErrorRate * 100f,
                         stats.recentAvgTimeMs / 1000.0
                     ),
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }

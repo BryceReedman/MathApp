@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 data class GroupStat(
     val group: QuestionGroup,
     val accuracy: Float,   // 0-100; -1 = no data
-    val attempted: Int
+    val attempted: Int,
+    val speedRecord: Long? = null   // best avg time in ms; null = no record
 ) {
     val status: GroupStatus get() = when {
         attempted == 0  -> GroupStatus.NONE
@@ -37,6 +38,9 @@ data class JourneyState(
     val milestones: List<Milestone> = emptyList()
 )
 
+// Operations shown in Journey (MIXED excluded — stats tracked per-operation)
+val JOURNEY_OPERATIONS = MathOperation.entries.filter { it != MathOperation.MIXED }
+
 class JourneyViewModel(private val repository: ProgressRepository) : ViewModel() {
 
     private val _state = MutableStateFlow(JourneyState())
@@ -56,7 +60,8 @@ class JourneyViewModel(private val repository: ProgressRepository) : ViewModel()
 
         val groupStats = QuestionGroups.forOperation(operation).map { group ->
             val (accuracy, attempted) = repository.getGroupAccuracy(operation, group.id)
-            GroupStat(group, accuracy, attempted)
+            val speedRecord = repository.getSpeedRecord(operation, group.id)
+            GroupStat(group, accuracy, attempted, speedRecord)
         }.filter { it.attempted > 0 }
 
         val milestones = repository.getMilestones(operation)

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Calendar
 
 class ProgressRepository(context: Context) {
 
@@ -48,18 +49,18 @@ class ProgressRepository(context: Context) {
 
     fun getQuestionStats(questionKey: String): QuestionStats? {
         val opName = prefs.getString(opKey(questionKey), null) ?: return null
-        val operation = MathOperation.valueOf(opName)
+        val operation = try { MathOperation.valueOf(opName) } catch (e: Exception) { return null }
         val attempts = loadAttempts(questionKey)
         if (attempts.isEmpty()) return null
         return QuestionStats(questionKey, operation, attempts)
     }
 
     fun getAllQuestionStats(operation: MathOperation): List<QuestionStats> {
-        val prefix = "op_${operation.name}_"
-        return prefs.all.keys
-            .filter { it.startsWith(prefix) }
-            .mapNotNull { key ->
-                val questionKey = key.removePrefix(prefix)
+        // Fix: filter by value == operation.name, reconstruct questionKey from key.removePrefix("op_")
+        return prefs.all.entries
+            .filter { (key, value) -> key.startsWith("op_") && value == operation.name }
+            .mapNotNull { (key, _) ->
+                val questionKey = key.removePrefix("op_")
                 getQuestionStats(questionKey)
             }
     }
@@ -79,19 +80,31 @@ class ProgressRepository(context: Context) {
 
     private fun isKeyInGroup(questionKey: String, operation: MathOperation, groupId: Int): Boolean {
         val range = QuestionGroups.groupRange(groupId)
-        val text = questionKey.substringAfter("_")
-        val num = when (operation) {
+        val text = questionKey.removePrefix("${operation.name}_")
+        val num: Int? = when (operation) {
             MathOperation.MULTIPLICATION -> text.substringBefore(" \u00d7").toIntOrNull()
             MathOperation.DIVISION       -> text.substringAfterLast("\u00f7 ").trim().toIntOrNull()
+            MathOperation.ADDITION       -> text.substringBefore(" + ").toIntOrNull()
+            MathOperation.SUBTRACTION    -> text.substringBefore(" \u2212 ").toIntOrNull()
             MathOperation.POWERS         -> text.substringBefore("^").toIntOrNull()
+            MathOperation.SQUARE_ROOTS   -> {
+                val n = text.removePrefix("\u221a").toIntOrNull()
+                n?.let { kotlin.math.sqrt(it.toDouble()).toInt() }
+            }
+            MathOperation.CUBE_ROOTS     -> {
+                val n = text.removePrefix("\u221b").toIntOrNull()
+                n?.let { Math.cbrt(it.toDouble()).toInt() }
+            }
             MathOperation.FRACTIONS      -> text.substringAfterLast("/").toIntOrNull()
+            MathOperation.PERCENTAGES    -> text.substringAfterLast("of ").trim().toIntOrNull()
+            MathOperation.FACTORIZATION  -> text.toIntOrNull()
+            MathOperation.MIXED          -> null
         }
         return num != null && num in range
     }
 
     // ── Group stats for Journey ──────────────────────────────────────────────
 
-    /** Returns (accuracy 0–100, totalAttempts). Accuracy = -1 if no data. */
     fun getGroupAccuracy(operation: MathOperation, groupId: Int): Pair<Float, Int> {
         val groupStats = getAllQuestionStats(operation)
             .filter { isKeyInGroup(it.questionKey, operation, groupId) }
@@ -233,14 +246,143 @@ class ProgressRepository(context: Context) {
         }
     }
 
+    // ── SRS (Spaced Repetition) ──────────────────────────────────────────────
+
+    fun getSrsInterval(questionKey: String): Int =
+        prefs.getInt(srsIntervalKey(questionKey), 0)
+
+    fun getSrsDueDate(questionKey: String): Long =
+        prefs.getLong(srsDueKey(questionKey), 0L)
+
+    fun updateSrs(questionKey: String, wasCorrect: Boolean, timeMs: Long) {
+        val prevInterval = getSrsInterval(questionKey)
+        val nextInterval = SrsScheduler.nextIntervalDays(wasCorrect, SrsScheduler.isFast(timeMs), prevInterval)
+        val nextDue = System.currentTimeMillis() + nextInterval * 24L * 60 * 60 * 1000
+        prefs.edit()
+            .putInt(srsIntervalKey(questionKey), nextInterval)
+            .putLong(srsDueKey(questionKey), nextDue)
+            .apply()
+    }
+
+    /** Returns a map of operation → count of SRS-due questions for that operation. */
+    fun getDueQuestionCounts(operations: List<MathOperation>): Map<MathOperation, Int> {
+        val now = System.currentTimeMillis()
+        return operations.associateWith { op ->
+            val prefix = "srs_due_${op.name}_"
+            prefs.all.entries
+                .filter { (key, value) -> key.startsWith(prefix) && value is Long }
+                .count { (_, value) -> (value as Long) <= now }
+        }
+    }
+
+    // ── Daily goal / progress / streak ───────────────────────────────────────
+
+    fun getDailyGoal(): Int = prefs.getInt("daily_goal", 20)
+
+    fun setDailyGoal(goal: Int) {
+        prefs.edit().putInt("daily_goal", goal).apply()
+    }
+
+    fun getDailyProgressToday(): Int {
+        val today = currentDateString()
+        val progressDate = prefs.getString("daily_progress_date", null)
+        return if (progressDate == today) {
+            prefs.getInt("daily_progress", 0)
+        } else {
+            prefs.edit()
+                .putString("daily_progress_date", today)
+                .putInt("daily_progress", 0)
+                .apply()
+            0
+        }
+    }
+
+    fun incrementDailyProgress() {
+        getDailyProgressToday()  // ensure reset if date changed
+        val newProgress = prefs.getInt("daily_progress", 0) + 1
+        prefs.edit().putInt("daily_progress", newProgress).apply()
+        checkAndUpdateStreak()
+    }
+
+    fun getStreak(): Int {
+        refreshStreakIfBroken()
+        return prefs.getInt("streak_count", 0)
+    }
+
+    private fun refreshStreakIfBroken() {
+        val lastMet = prefs.getString("last_goal_met_date", null) ?: return
+        val yesterday = previousDateString()
+        if (lastMet < yesterday) {
+            prefs.edit().putInt("streak_count", 0).apply()
+        }
+    }
+
+    private fun checkAndUpdateStreak() {
+        val today = currentDateString()
+        val lastMet = prefs.getString("last_goal_met_date", null)
+        if (lastMet == today) return  // already counted today
+        val goalMet = getDailyProgressToday() >= getDailyGoal()
+        if (!goalMet) return
+        val yesterday = previousDateString()
+        val currentStreak = prefs.getInt("streak_count", 0)
+        val newStreak = if (lastMet == yesterday) currentStreak + 1 else 1
+        prefs.edit()
+            .putInt("streak_count", newStreak)
+            .putString("last_goal_met_date", today)
+            .apply()
+    }
+
+    // ── Speed records ────────────────────────────────────────────────────────
+
+    fun updateSpeedRecord(operation: MathOperation, groupId: Int, avgTimeMs: Long) {
+        val key = speedRecordKey(operation, groupId)
+        val current = prefs.getLong(key, Long.MAX_VALUE)
+        if (avgTimeMs < current) {
+            prefs.edit().putLong(key, avgTimeMs).apply()
+        }
+    }
+
+    fun getSpeedRecord(operation: MathOperation, groupId: Int): Long? {
+        val value = prefs.getLong(speedRecordKey(operation, groupId), Long.MAX_VALUE)
+        return if (value == Long.MAX_VALUE) null else value
+    }
+
+    // ── Onboarding ───────────────────────────────────────────────────────────
+
+    fun isOnboardingComplete(): Boolean = prefs.getBoolean("onboarding_complete", false)
+
+    fun setOnboardingComplete() {
+        prefs.edit().putBoolean("onboarding_complete", true).apply()
+    }
+
+    // ── Date helpers ─────────────────────────────────────────────────────────
+
+    private fun currentDateString(): String {
+        val c = Calendar.getInstance()
+        return "%04d-%02d-%02d".format(
+            c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH)
+        )
+    }
+
+    private fun previousDateString(): String {
+        val c = Calendar.getInstance()
+        c.add(Calendar.DAY_OF_MONTH, -1)
+        return "%04d-%02d-%02d".format(
+            c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH)
+        )
+    }
+
     // ── Key helpers ──────────────────────────────────────────────────────────
 
-    private fun prefKey(questionKey: String)  = "q_$questionKey"
-    private fun opKey(questionKey: String)    = "op_$questionKey"
-    private fun sessionKey(op: MathOperation) = "sessions_${op.name}"
-    private fun excludedKey(op: MathOperation) = "excluded_${op.name}"
-    private fun milestonesKey(op: MathOperation) = "milestones_${op.name}"
+    private fun prefKey(questionKey: String)      = "q_$questionKey"
+    private fun opKey(questionKey: String)        = "op_$questionKey"
+    private fun sessionKey(op: MathOperation)     = "sessions_${op.name}"
+    private fun excludedKey(op: MathOperation)    = "excluded_${op.name}"
+    private fun milestonesKey(op: MathOperation)  = "milestones_${op.name}"
     private fun groupStatusKey(op: MathOperation, groupId: Int) = "gstatus_${op.name}_$groupId"
+    private fun srsIntervalKey(questionKey: String) = "srs_interval_$questionKey"
+    private fun srsDueKey(questionKey: String)      = "srs_due_$questionKey"
+    private fun speedRecordKey(op: MathOperation, groupId: Int) = "speed_${op.name}_$groupId"
 
     companion object {
         private const val PREFS_NAME = "mathapp_progress"

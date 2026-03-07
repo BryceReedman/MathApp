@@ -30,7 +30,7 @@ class QuizViewModel : ViewModel() {
     private val _state = MutableStateFlow(QuizState())
     val state: StateFlow<QuizState> = _state.asStateFlow()
 
-    private lateinit var operation: MathOperation
+    private lateinit var sessionOperation: MathOperation
     private var groupIds: List<Int> = emptyList()
     private var strugglingOnly: Boolean = false
     private lateinit var repository: ProgressRepository
@@ -49,10 +49,10 @@ class QuizViewModel : ViewModel() {
         if (initialized) return
         initialized = true
 
-        this.operation      = operation
-        this.groupIds       = groupIds
-        this.strugglingOnly = strugglingOnly
-        this.repository     = repository
+        this.sessionOperation = operation
+        this.groupIds         = groupIds
+        this.strugglingOnly   = strugglingOnly
+        this.repository       = repository
 
         val excludedNumbers = repository.getExcludedNumbers(operation)
         val factors = QuestionGroups.buildFactorList(groupIds, excludedNumbers)
@@ -73,16 +73,53 @@ class QuizViewModel : ViewModel() {
         )
     }
 
+    /** Used for Mixed Mode: merge question pools from multiple operations. */
+    fun initializeMixed(
+        operations: List<MathOperation>,
+        groupIds: List<Int>,
+        totalCount: Int,
+        repository: ProgressRepository
+    ) {
+        if (initialized) return
+        initialized = true
+
+        this.sessionOperation = MathOperation.MIXED
+        this.groupIds         = groupIds
+        this.strugglingOnly   = false
+        this.repository       = repository
+
+        val defaultGroups = if (groupIds.isEmpty()) listOf(1) else groupIds
+        val pool = operations.flatMap { op ->
+            val factors = QuestionGroups.buildFactorList(defaultGroups, repository.getExcludedNumbers(op))
+            QuestionGenerator.allQuestions(op, factors)
+        }.shuffled().take(totalCount)
+
+        questionQueue = ArrayDeque(pool)
+
+        val firstQuestion = nextQuestion()
+        questionStartTime = System.currentTimeMillis()
+        _state.value = QuizState(
+            currentQuestion = firstQuestion,
+            totalCount      = pool.size.coerceAtLeast(1)
+        )
+    }
+
     fun onKeyPress(key: String) {
         val current = _state.value
         if (current.feedbackState != null) return
+        val isFactorization = current.currentQuestion?.operationType == MathOperation.FACTORIZATION
         when (key) {
             "\u232b" -> _state.value = current.copy(
                 userInput = current.userInput.dropLast(1)
             )
             "." -> {
-                if ("." !in current.userInput) {
+                if (!isFactorization && "." !in current.userInput) {
                     _state.value = current.copy(userInput = current.userInput + ".")
+                }
+            }
+            "\u00d7" -> {  // × separator for factorization
+                if (isFactorization && "\u00d7" !in current.userInput && current.userInput.isNotEmpty()) {
+                    _state.value = current.copy(userInput = current.userInput + "\u00d7")
                 }
             }
             else -> {
@@ -97,12 +134,20 @@ class QuizViewModel : ViewModel() {
         val current = _state.value
         if (current.feedbackState != null || current.userInput.isBlank()) return
 
-        val question   = current.currentQuestion ?: return
-        val userAnswer = current.userInput.toDoubleOrNull() ?: return
-        val timeMs     = System.currentTimeMillis() - questionStartTime
-        val isCorrect  = isAnswerCorrect(userAnswer, question)
+        val question = current.currentQuestion ?: return
+        val timeMs   = System.currentTimeMillis() - questionStartTime
 
-        repository.recordAnswer(question.questionKey, operation, isCorrect, timeMs)
+        val isCorrect = if (question.operationType == MathOperation.FACTORIZATION) {
+            checkFactorization(current.userInput, question.correctAnswer.toInt())
+        } else {
+            val userAnswer = current.userInput.toDoubleOrNull() ?: return
+            isAnswerCorrect(userAnswer, question)
+        }
+
+        // Record under the question's actual operation (important for MIXED sessions)
+        repository.recordAnswer(question.questionKey, question.operationType, isCorrect, timeMs)
+        repository.updateSrs(question.questionKey, isCorrect, timeMs)
+        repository.incrementDailyProgress()
 
         _state.value = current.copy(
             feedbackState = isCorrect,
@@ -114,6 +159,14 @@ class QuizViewModel : ViewModel() {
             delay(if (isCorrect) 800L else 1500L)
             advance()
         }
+    }
+
+    private fun checkFactorization(input: String, target: Int): Boolean {
+        val parts = input.split("\u00d7")
+        if (parts.size != 2) return false
+        val a = parts[0].trim().toIntOrNull() ?: return false
+        val b = parts[1].trim().toIntOrNull() ?: return false
+        return a >= 2 && b >= 2 && a * b == target
     }
 
     private fun advance() {
@@ -137,7 +190,8 @@ class QuizViewModel : ViewModel() {
 
     private fun isAnswerCorrect(userAnswer: Double, question: Question): Boolean =
         when (question.operationType) {
-            MathOperation.FRACTIONS -> abs(userAnswer - question.correctAnswer) < 0.001
-            else                    -> userAnswer == question.correctAnswer
+            MathOperation.FRACTIONS,
+            MathOperation.PERCENTAGES -> abs(userAnswer - question.correctAnswer) < 0.01
+            else                      -> userAnswer == question.correctAnswer
         }
 }

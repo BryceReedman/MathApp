@@ -27,13 +27,18 @@ fun QuizScreen(
     questionCount: Int,
     strugglingOnly: Boolean,
     repository: ProgressRepository,
+    mixedOperations: List<MathOperation>? = null,
     onQuizComplete: (correct: Int, total: Int, avgTimeMs: Long) -> Unit
 ) {
     val vm: QuizViewModel = viewModel()
     val state by vm.state.collectAsState()
 
     LaunchedEffect(operation, groupIds, questionCount, strugglingOnly) {
-        vm.initialize(operation, groupIds, questionCount, strugglingOnly, repository)
+        if (operation == MathOperation.MIXED && mixedOperations != null) {
+            vm.initializeMixed(mixedOperations, groupIds, questionCount, repository)
+        } else {
+            vm.initialize(operation, groupIds, questionCount, strugglingOnly, repository)
+        }
     }
 
     LaunchedEffect(state.isComplete) {
@@ -50,7 +55,9 @@ fun QuizScreen(
                     avgTimeMs      = avgTime
                 )
             )
-            repository.checkAndRecordMilestones(operation, groupIds)
+            if (operation != MathOperation.MIXED) {
+                repository.checkAndRecordMilestones(operation, groupIds)
+            }
             onQuizComplete(state.correctCount, state.totalCount, avgTime)
         }
     }
@@ -98,11 +105,13 @@ fun QuizScreen(
             )
         }
 
+        val currentOp = question.operationType
         NumericKeypad(
-            onKey       = { vm.onKeyPress(it) },
-            onSubmit    = { vm.onSubmit() },
-            showDecimal = operation == MathOperation.FRACTIONS,
-            enabled     = state.feedbackState == null
+            onKey            = { vm.onKeyPress(it) },
+            onSubmit         = { vm.onSubmit() },
+            showDecimal      = currentOp == MathOperation.FRACTIONS || currentOp == MathOperation.PERCENTAGES,
+            showFactorSep    = currentOp == MathOperation.FACTORIZATION,
+            enabled          = state.feedbackState == null
         )
     }
 }
@@ -157,13 +166,20 @@ fun NumericKeypad(
     onKey: (String) -> Unit,
     onSubmit: () -> Unit,
     showDecimal: Boolean,
+    showFactorSep: Boolean = false,
     enabled: Boolean
 ) {
+    // Bottom-row special key: "×" for factorization, "." for fractions/percentages, empty otherwise
+    val specialKey = when {
+        showFactorSep -> "\u00d7"
+        showDecimal   -> "."
+        else          -> null
+    }
+
     val rows = listOf(
         listOf("7", "8", "9"),
         listOf("4", "5", "6"),
-        listOf("1", "2", "3"),
-        listOf(".", "0", "⌫")
+        listOf("1", "2", "3")
     )
 
     Column(
@@ -176,20 +192,45 @@ fun NumericKeypad(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 row.forEach { key ->
-                    if (key == "." && !showDecimal) {
-                        Spacer(Modifier.weight(1f))
-                    } else {
-                        OutlinedButton(
-                            onClick  = { onKey(key) },
-                            enabled  = enabled,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(56.dp)
-                        ) {
-                            Text(key, style = MaterialTheme.typography.headlineMedium)
-                        }
+                    OutlinedButton(
+                        onClick  = { onKey(key) },
+                        enabled  = enabled,
+                        modifier = Modifier.weight(1f).height(56.dp)
+                    ) {
+                        Text(key, style = MaterialTheme.typography.headlineMedium)
                     }
                 }
+            }
+        }
+        // Bottom row: [special/blank] [0] [⌫]
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (specialKey != null) {
+                OutlinedButton(
+                    onClick  = { onKey(specialKey) },
+                    enabled  = enabled,
+                    modifier = Modifier.weight(1f).height(56.dp)
+                ) {
+                    Text(specialKey, style = MaterialTheme.typography.headlineMedium)
+                }
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
+            OutlinedButton(
+                onClick  = { onKey("0") },
+                enabled  = enabled,
+                modifier = Modifier.weight(1f).height(56.dp)
+            ) {
+                Text("0", style = MaterialTheme.typography.headlineMedium)
+            }
+            OutlinedButton(
+                onClick  = { onKey("\u232b") },
+                enabled  = enabled,
+                modifier = Modifier.weight(1f).height(56.dp)
+            ) {
+                Text("⌫", style = MaterialTheme.typography.headlineMedium)
             }
         }
         Button(
