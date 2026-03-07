@@ -26,11 +26,10 @@ fun QuizConfigScreen(
 ) {
     val allGroups = QuestionGroups.forOperation(operation)
     var selectedGroupIds by remember { mutableStateOf(QuestionGroups.defaultSelected(operation).toSet()) }
-    // null = "All"
     var selectedCount by remember { mutableStateOf<Int?>(10) }
     var strugglingOnly by remember { mutableStateOf(false) }
+    var excludedNumbers by remember { mutableStateOf(repository.getExcludedNumbers(operation)) }
 
-    // Recompute struggling count whenever selected groups change
     val strugglingCount by remember(selectedGroupIds) {
         derivedStateOf {
             repository.getStrugglingCount(operation, selectedGroupIds.toList())
@@ -73,15 +72,50 @@ fun QuizConfigScreen(
                             } else if (!selected) {
                                 selectedGroupIds + group.id
                             } else {
-                                selectedGroupIds // prevent deselecting last
+                                selectedGroupIds
                             }
-                            // Reset struggling mode if it becomes invalid
                             if (strugglingOnly && repository.getStrugglingCount(operation, selectedGroupIds.toList()) == 0) {
                                 strugglingOnly = false
                             }
                         },
                         label = { Text(group.label) }
                     )
+                }
+            }
+
+            // ── Factor exclusion ─────────────────────────────────────────────
+            Text("Exclude factors", style = MaterialTheme.typography.headlineMedium)
+            selectedGroupIds.sorted().forEach { groupId ->
+                val group = allGroups.first { it.id == groupId }
+                Text(
+                    group.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    (group.minVal..group.maxVal).forEach { num ->
+                        val included = num !in excludedNumbers
+                        // Compute how many included numbers remain for this group
+                        val includedInGroup = (group.minVal..group.maxVal).count { it !in excludedNumbers }
+                        FilterChip(
+                            selected = included,
+                            onClick = {
+                                val newExcluded = if (included) {
+                                    // Exclude this number — but keep at least 1 per group
+                                    if (includedInGroup > 1) excludedNumbers + num else excludedNumbers
+                                } else {
+                                    excludedNumbers - num
+                                }
+                                excludedNumbers = newExcluded
+                                repository.setExcludedNumbers(operation, newExcluded)
+                            },
+                            label = { Text(num.toString()) }
+                        )
+                    }
                 }
             }
 

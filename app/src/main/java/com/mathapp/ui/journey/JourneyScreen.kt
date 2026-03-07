@@ -2,6 +2,7 @@ package com.mathapp.ui.journey
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,13 +21,17 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mathapp.data.GroupStatus
 import com.mathapp.data.MathOperation
+import com.mathapp.data.Milestone
 import com.mathapp.data.ProgressRepository
 import com.mathapp.data.QuestionStats
 import com.mathapp.data.SessionRecord
 import com.mathapp.ui.theme.Blue40
 import com.mathapp.ui.theme.Green
 import com.mathapp.ui.theme.Red
+
+private val Yellow = Color(0xFFFFC107)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +77,12 @@ fun JourneyScreen(
                 }
             }
 
+            // ── Group performance ────────────────────────────────────────────
+            if (state.groupStats.isNotEmpty()) {
+                Text("Group performance", style = MaterialTheme.typography.headlineMedium)
+                GroupPerformanceRow(state.groupStats)
+            }
+
             // ── Stats summary ────────────────────────────────────────────────
             if (state.totalAnswered > 0) {
                 Row(
@@ -99,10 +110,11 @@ fun JourneyScreen(
                 if (state.sessionHistory.size >= 2) {
                     Text("Accuracy over time", style = MaterialTheme.typography.headlineMedium)
                     AccuracyGraph(
-                        sessions = state.sessionHistory.takeLast(20),
-                        modifier = Modifier
+                        sessions  = state.sessionHistory.takeLast(20),
+                        milestones = state.milestones,
+                        modifier  = Modifier
                             .fillMaxWidth()
-                            .height(180.dp)
+                            .height(200.dp)
                     )
                 }
 
@@ -126,7 +138,12 @@ fun JourneyScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text("No struggling questions", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Green)
+                            Text(
+                                "No struggling questions",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Green
+                            )
                         }
                     }
                 }
@@ -140,6 +157,47 @@ fun JourneyScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun GroupPerformanceRow(groupStats: List<GroupStat>) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        groupStats.forEach { stat ->
+            val (bgColor, labelColor) = when (stat.status) {
+                GroupStatus.GREEN  -> Green.copy(alpha = 0.2f) to Green
+                GroupStatus.YELLOW -> Yellow.copy(alpha = 0.2f) to Yellow
+                GroupStatus.RED    -> Red.copy(alpha = 0.2f) to Red
+                GroupStatus.NONE   -> Color.Gray.copy(alpha = 0.1f) to Color.Gray
+            }
+            Surface(
+                color = bgColor,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        stat.group.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = labelColor
+                    )
+                    if (stat.accuracy >= 0f) {
+                        Text(
+                            "%.0f%%".format(stat.accuracy),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = labelColor.copy(alpha = 0.8f)
+                        )
+                    }
                 }
             }
         }
@@ -160,8 +218,15 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun AccuracyGraph(sessions: List<SessionRecord>, modifier: Modifier = Modifier) {
+fun AccuracyGraph(
+    sessions: List<SessionRecord>,
+    milestones: List<Milestone>,
+    modifier: Modifier = Modifier
+) {
     val primaryColor = Blue40
+    val yellowColor  = Yellow
+    val greenColor   = Green
+
     Card(modifier = modifier) {
         Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             if (sessions.size < 2) return@Canvas
@@ -169,16 +234,17 @@ fun AccuracyGraph(sessions: List<SessionRecord>, modifier: Modifier = Modifier) 
             val w = size.width
             val h = size.height
             val padBottom = 20f
-            val plotH = h - padBottom
+            val padTop    = 20f   // room for milestone triangles
+            val plotH = h - padBottom - padTop
 
             // Axis
-            drawLine(Color.LightGray, Offset(0f, 0f), Offset(0f, plotH), strokeWidth = 1f)
-            drawLine(Color.LightGray, Offset(0f, plotH), Offset(w, plotH), strokeWidth = 1f)
+            drawLine(Color.LightGray, Offset(0f, padTop), Offset(0f, padTop + plotH), strokeWidth = 1f)
+            drawLine(Color.LightGray, Offset(0f, padTop + plotH), Offset(w, padTop + plotH), strokeWidth = 1f)
 
             // Data points
             val points = sessions.mapIndexed { i, s ->
                 val x = if (sessions.size == 1) w / 2f else i.toFloat() / (sessions.size - 1) * w
-                val y = plotH - (s.accuracy / 100f * plotH)
+                val y = padTop + plotH - (s.accuracy / 100f * plotH)
                 Offset(x, y)
             }
 
@@ -193,6 +259,25 @@ fun AccuracyGraph(sessions: List<SessionRecord>, modifier: Modifier = Modifier) 
             points.forEach { pt ->
                 drawCircle(primaryColor, radius = 5f, center = pt)
                 drawCircle(Color.White, radius = 3f, center = pt)
+            }
+
+            // Milestone markers (upward triangles above the graph line)
+            milestones.forEach { milestone ->
+                // Find nearest session index by timestamp
+                val idx = sessions.indexOfFirst { it.timestampMs >= milestone.timestampMs }
+                    .takeIf { it >= 0 } ?: return@forEach
+                val x = if (sessions.size == 1) w / 2f else idx.toFloat() / (sessions.size - 1) * w
+                val tipY = padTop - 4f
+                val triangleSize = 10f
+                val color = if (milestone.newStatus == GroupStatus.GREEN) greenColor else yellowColor
+
+                val trianglePath = Path().apply {
+                    moveTo(x, tipY)
+                    lineTo(x - triangleSize / 2f, tipY + triangleSize)
+                    lineTo(x + triangleSize / 2f, tipY + triangleSize)
+                    close()
+                }
+                drawPath(trianglePath, color)
             }
         }
     }
@@ -216,7 +301,7 @@ fun StrugglingRow(stats: QuestionStats) {
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "Error rate: %.0f%%  ·  Avg: %.1fs".format(
+                    "Error rate: %.0f%%  \u00b7  Avg: %.1fs".format(
                         stats.recentErrorRate * 100f,
                         stats.recentAvgTimeMs / 1000.0
                     ),
@@ -224,7 +309,6 @@ fun StrugglingRow(stats: QuestionStats) {
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
-            // Small error bar
             LinearProgressIndicator(
                 progress = stats.recentErrorRate,
                 modifier = Modifier.width(60.dp),

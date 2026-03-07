@@ -50,6 +50,7 @@ fun QuizScreen(
                     avgTimeMs      = avgTime
                 )
             )
+            repository.checkAndRecordMilestones(operation, groupIds)
             onQuizComplete(state.correctCount, state.totalCount, avgTime)
         }
     }

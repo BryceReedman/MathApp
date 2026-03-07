@@ -1,97 +1,78 @@
 package com.mathapp.data
 
 import kotlin.math.pow
-import kotlin.random.Random
 
 object QuestionGenerator {
 
-    fun generate(operation: MathOperation, groupId: Int): Question = when (operation) {
-        MathOperation.MULTIPLICATION -> multiplication(groupId)
-        MathOperation.DIVISION       -> division(groupId)
-        MathOperation.POWERS         -> powers(groupId)
-        MathOperation.FRACTIONS      -> fractions(groupId)
-    }
-
-    fun generateFromGroups(operation: MathOperation, groupIds: List<Int>): Question {
-        val groupId = groupIds.random()
-        return generate(operation, groupId)
-    }
-
-    fun generateStruggling(
+    /**
+     * Builds a shuffled list of [count] questions from the given groups,
+     * filtering out excluded numbers and (if provided) limiting to struggling keys.
+     * Cycles through the pool with re-shuffles if count > pool size.
+     */
+    fun buildShuffledPool(
         operation: MathOperation,
         groupIds: List<Int>,
-        strugglingKeys: Set<String>
-    ): Question {
-        // Collect all possible question texts for the struggling keys that match selected groups
-        val candidates = buildCandidatePool(operation, groupIds, strugglingKeys)
-        return if (candidates.isNotEmpty() && Random.nextFloat() < 0.85f) {
-            candidates.random()
-        } else {
-            generateFromGroups(operation, groupIds)
-        }
-    }
-
-    private fun buildCandidatePool(
-        operation: MathOperation,
-        groupIds: List<Int>,
-        strugglingKeys: Set<String>
+        excludedNumbers: Set<Int>,
+        strugglingKeys: Set<String>?,
+        count: Int
     ): List<Question> {
-        val candidates = mutableListOf<Question>()
-        for (groupId in groupIds) {
-            val questions = allQuestionsForGroup(operation, groupId)
-            for (q in questions) {
-                if (q.questionKey in strugglingKeys) candidates.add(q)
+        val pool = groupIds
+            .flatMap { allQuestionsForGroup(operation, it) }
+            .distinctBy { it.questionKey }
+            .filter { q -> !isExcludedQuestion(q, excludedNumbers) }
+            .filter { q -> strugglingKeys == null || q.questionKey in strugglingKeys }
+
+        if (pool.isEmpty()) return emptyList()
+
+        val result = mutableListOf<Question>()
+        val shuffled = pool.shuffled().toMutableList()
+        while (result.size < count) {
+            result.addAll(shuffled.take(count - result.size))
+            if (result.size < count) shuffled.shuffle()
+        }
+        return result.take(count)
+    }
+
+    fun allQuestionsForGroup(operation: MathOperation, groupId: Int): List<Question> {
+        val range = QuestionGroups.groupRange(groupId)
+        return when (operation) {
+            MathOperation.MULTIPLICATION -> range.flatMap { a ->
+                (1..12).map { b ->
+                    Question("$a \u00d7 $b", (a * b).toDouble(), operation, groupId)
+                }
+            }
+            MathOperation.DIVISION -> range.flatMap { divisor ->
+                (1..12).map { quotient ->
+                    Question(
+                        "${divisor * quotient} \u00f7 $divisor",
+                        quotient.toDouble(),
+                        operation,
+                        groupId
+                    )
+                }
+            }
+            MathOperation.POWERS -> range.flatMap { base ->
+                (2..4).map { exp ->
+                    Question("$base^$exp", base.toDouble().pow(exp.toDouble()), operation, groupId)
+                }
+            }
+            MathOperation.FRACTIONS -> range.filter { it > 1 }.flatMap { denom ->
+                (1 until denom).map { num ->
+                    Question("$num/$denom", num.toDouble() / denom.toDouble(), operation, groupId)
+                }
             }
         }
-        return candidates
     }
 
-    private fun allQuestionsForGroup(operation: MathOperation, groupId: Int): List<Question> =
-        when (operation) {
-            MathOperation.MULTIPLICATION -> (1..12).map { other ->
-                val a = groupId; val b = other
-                Question("$a × $b", (a * b).toDouble(), operation, groupId)
-            }
-            MathOperation.DIVISION -> (1..12).map { quotient ->
-                val dividend = groupId * quotient
-                Question("$dividend ÷ $groupId", quotient.toDouble(), operation, groupId)
-            }
-            MathOperation.POWERS -> (2..5).map { exp ->
-                val result = groupId.toDouble().pow(exp.toDouble())
-                Question("$groupId^$exp", result, operation, groupId)
-            }
-            MathOperation.FRACTIONS -> (1 until groupId).map { numerator ->
-                val result = numerator.toDouble() / groupId.toDouble()
-                Question("$numerator/$groupId", result, operation, groupId)
-            }
+    private fun isExcludedQuestion(question: Question, excluded: Set<Int>): Boolean {
+        if (excluded.isEmpty()) return false
+        val text = question.questionText
+        val num = when (question.operationType) {
+            MathOperation.MULTIPLICATION -> text.substringBefore(" \u00d7").toIntOrNull()
+            MathOperation.DIVISION       -> text.substringAfterLast("\u00f7 ").trim().toIntOrNull()
+            MathOperation.POWERS         -> text.substringBefore("^").toIntOrNull()
+            MathOperation.FRACTIONS      -> text.substringAfterLast("/").toIntOrNull()
         }
-
-    private fun multiplication(groupId: Int): Question {
-        val other = Random.nextInt(1, 13)
-        val a = groupId; val b = other
-        return Question("$a × $b", (a * b).toDouble(), MathOperation.MULTIPLICATION, groupId)
-    }
-
-    private fun division(groupId: Int): Question {
-        val quotient = Random.nextInt(1, 13)
-        val dividend = groupId * quotient
-        return Question(
-            "$dividend ÷ $groupId",
-            quotient.toDouble(),
-            MathOperation.DIVISION,
-            groupId
-        )
-    }
-
-    private fun powers(groupId: Int): Question {
-        val exp = Random.nextInt(2, 6)
-        val result = groupId.toDouble().pow(exp.toDouble())
-        return Question("$groupId^$exp", result, MathOperation.POWERS, groupId)
-    }
-
-    private fun fractions(groupId: Int): Question {
-        val numerator = Random.nextInt(1, groupId)
-        val result = numerator.toDouble() / groupId.toDouble()
-        return Question("$numerator/$groupId", result, MathOperation.FRACTIONS, groupId)
+        return num != null && num in excluded
     }
 }

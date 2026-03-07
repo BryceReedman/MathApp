@@ -32,10 +32,11 @@ class QuizViewModel : ViewModel() {
     private lateinit var operation: MathOperation
     private var groupIds: List<Int> = emptyList()
     private var strugglingOnly: Boolean = false
-    private var strugglingKeys: Set<String> = emptySet()
     private lateinit var repository: ProgressRepository
     private var questionStartTime = 0L
     private var initialized = false
+
+    private lateinit var questionQueue: ArrayDeque<Question>
 
     fun initialize(
         operation: MathOperation,
@@ -52,9 +53,15 @@ class QuizViewModel : ViewModel() {
         this.strugglingOnly = strugglingOnly
         this.repository     = repository
 
-        if (strugglingOnly) {
-            strugglingKeys = repository.getStrugglingKeys(operation, groupIds)
-        }
+        val excludedNumbers = repository.getExcludedNumbers(operation)
+        val strugglingKeys = if (strugglingOnly) {
+            repository.getStrugglingKeys(operation, groupIds)
+        } else null
+
+        val pool = QuestionGenerator.buildShuffledPool(
+            operation, groupIds, excludedNumbers, strugglingKeys, totalCount
+        )
+        questionQueue = ArrayDeque(pool)
 
         val firstQuestion = nextQuestion()
         questionStartTime = System.currentTimeMillis()
@@ -68,7 +75,7 @@ class QuizViewModel : ViewModel() {
         val current = _state.value
         if (current.feedbackState != null) return
         when (key) {
-            "⌫" -> _state.value = current.copy(
+            "\u232b" -> _state.value = current.copy(
                 userInput = current.userInput.dropLast(1)
             )
             "." -> {
@@ -88,10 +95,10 @@ class QuizViewModel : ViewModel() {
         val current = _state.value
         if (current.feedbackState != null || current.userInput.isBlank()) return
 
-        val question    = current.currentQuestion ?: return
-        val userAnswer  = current.userInput.toDoubleOrNull() ?: return
-        val timeMs      = System.currentTimeMillis() - questionStartTime
-        val isCorrect   = isAnswerCorrect(userAnswer, question)
+        val question   = current.currentQuestion ?: return
+        val userAnswer = current.userInput.toDoubleOrNull() ?: return
+        val timeMs     = System.currentTimeMillis() - questionStartTime
+        val isCorrect  = isAnswerCorrect(userAnswer, question)
 
         repository.recordAnswer(question.questionKey, operation, isCorrect, timeMs)
 
@@ -124,11 +131,7 @@ class QuizViewModel : ViewModel() {
         }
     }
 
-    private fun nextQuestion(): Question = if (strugglingOnly && strugglingKeys.isNotEmpty()) {
-        QuestionGenerator.generateStruggling(operation, groupIds, strugglingKeys)
-    } else {
-        QuestionGenerator.generateFromGroups(operation, groupIds)
-    }
+    private fun nextQuestion(): Question = questionQueue.removeFirst()
 
     private fun isAnswerCorrect(userAnswer: Double, question: Question): Boolean =
         when (question.operationType) {
