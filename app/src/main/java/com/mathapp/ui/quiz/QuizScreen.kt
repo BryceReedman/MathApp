@@ -1,5 +1,13 @@
 package com.mathapp.ui.quiz
 
+import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -10,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -32,12 +42,22 @@ fun QuizScreen(
 ) {
     val vm: QuizViewModel = viewModel()
     val state by vm.state.collectAsState()
+    val context = LocalContext.current
 
     LaunchedEffect(operation, groupIds, questionCount, strugglingOnly) {
         if (operation == MathOperation.MIXED && mixedOperations != null) {
             vm.initializeMixed(mixedOperations, groupIds, questionCount, repository)
         } else {
             vm.initialize(operation, groupIds, questionCount, strugglingOnly, repository)
+        }
+    }
+
+    // Sound + vibration when feedback arrives
+    LaunchedEffect(state.feedbackState) {
+        when (state.feedbackState) {
+            true  -> { playTone(ToneGenerator.TONE_PROP_BEEP, 120); vibrate(context, longArrayOf(0, 60)) }
+            false -> { playTone(ToneGenerator.TONE_PROP_BEEP2, 250); vibrate(context, longArrayOf(0, 80, 60, 80)) }
+            null  -> {}
         }
     }
 
@@ -107,11 +127,10 @@ fun QuizScreen(
 
         val currentOp = question.operationType
         NumericKeypad(
-            onKey            = { vm.onKeyPress(it) },
-            onSubmit         = { vm.onSubmit() },
-            showDecimal      = currentOp == MathOperation.FRACTIONS || currentOp == MathOperation.PERCENTAGES,
-            showFactorSep    = currentOp == MathOperation.FACTORIZATION,
-            enabled          = state.feedbackState == null
+            onKey         = { vm.onKeyPress(it) },
+            showDecimal   = currentOp == MathOperation.FRACTIONS || currentOp == MathOperation.PERCENTAGES,
+            showFactorSep = currentOp == MathOperation.FACTORIZATION,
+            enabled       = state.feedbackState == null
         )
     }
 }
@@ -164,16 +183,22 @@ fun AnswerDisplay(
 @Composable
 fun NumericKeypad(
     onKey: (String) -> Unit,
-    onSubmit: () -> Unit,
     showDecimal: Boolean,
     showFactorSep: Boolean = false,
     enabled: Boolean
 ) {
+    val view = LocalView.current
+
     // Bottom-row special key: "×" for factorization, "." for fractions/percentages, empty otherwise
     val specialKey = when {
         showFactorSep -> "\u00d7"
         showDecimal   -> "."
         else          -> null
+    }
+
+    fun pressKey(key: String) {
+        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        onKey(key)
     }
 
     val rows = listOf(
@@ -193,7 +218,7 @@ fun NumericKeypad(
             ) {
                 row.forEach { key ->
                     OutlinedButton(
-                        onClick  = { onKey(key) },
+                        onClick  = { pressKey(key) },
                         enabled  = enabled,
                         modifier = Modifier.weight(1f).height(56.dp)
                     ) {
@@ -209,7 +234,7 @@ fun NumericKeypad(
         ) {
             if (specialKey != null) {
                 OutlinedButton(
-                    onClick  = { onKey(specialKey) },
+                    onClick  = { pressKey(specialKey) },
                     enabled  = enabled,
                     modifier = Modifier.weight(1f).height(56.dp)
                 ) {
@@ -219,28 +244,44 @@ fun NumericKeypad(
                 Spacer(Modifier.weight(1f))
             }
             OutlinedButton(
-                onClick  = { onKey("0") },
+                onClick  = { pressKey("0") },
                 enabled  = enabled,
                 modifier = Modifier.weight(1f).height(56.dp)
             ) {
                 Text("0", style = MaterialTheme.typography.headlineMedium)
             }
             OutlinedButton(
-                onClick  = { onKey("\u232b") },
+                onClick  = { pressKey("\u232b") },
                 enabled  = enabled,
                 modifier = Modifier.weight(1f).height(56.dp)
             ) {
                 Text("⌫", style = MaterialTheme.typography.headlineMedium)
             }
         }
-        Button(
-            onClick  = onSubmit,
-            enabled  = enabled,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-        ) {
-            Text("Submit", style = MaterialTheme.typography.labelLarge)
-        }
     }
+}
+
+private fun playTone(tone: Int, durationMs: Int) {
+    try {
+        val tg = ToneGenerator(AudioManager.STREAM_MUSIC, ToneGenerator.MAX_VOLUME * 2 / 3)
+        tg.startTone(tone, durationMs)
+    } catch (_: Exception) {}
+}
+
+@Suppress("DEPRECATION")
+private fun vibrate(context: Context, pattern: LongArray) {
+    try {
+        val vibrator: Vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+        } else {
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val timings  = pattern.drop(1).toLongArray()
+            val amps     = IntArray(timings.size) { VibrationEffect.DEFAULT_AMPLITUDE }
+            vibrator.vibrate(VibrationEffect.createWaveform(timings, amps, -1))
+        } else {
+            vibrator.vibrate(pattern, -1)
+        }
+    } catch (_: Exception) {}
 }

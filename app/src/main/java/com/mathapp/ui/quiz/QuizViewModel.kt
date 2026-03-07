@@ -107,7 +107,8 @@ class QuizViewModel : ViewModel() {
     fun onKeyPress(key: String) {
         val current = _state.value
         if (current.feedbackState != null) return
-        val isFactorization = current.currentQuestion?.operationType == MathOperation.FACTORIZATION
+        val question = current.currentQuestion ?: return
+        val isFactorization = question.operationType == MathOperation.FACTORIZATION
         when (key) {
             "\u232b" -> _state.value = current.copy(
                 userInput = current.userInput.dropLast(1)
@@ -120,14 +121,28 @@ class QuizViewModel : ViewModel() {
             "\u00d7" -> {  // × separator for factorization
                 if (isFactorization && "\u00d7" !in current.userInput && current.userInput.isNotEmpty()) {
                     _state.value = current.copy(userInput = current.userInput + "\u00d7")
+                    autoSubmitIfComplete(question)
                 }
             }
             else -> {
                 if (current.userInput.length < 10) {
                     _state.value = current.copy(userInput = current.userInput + key)
+                    autoSubmitIfComplete(question)
                 }
             }
         }
+    }
+
+    private fun autoSubmitIfComplete(question: Question) {
+        val input = _state.value.userInput
+        val shouldSubmit = when (question.operationType) {
+            MathOperation.FACTORIZATION -> {
+                val parts = input.split("\u00d7")
+                parts.size == 2 && parts[0].isNotEmpty() && parts[1].isNotEmpty()
+            }
+            else -> input.length == question.displayAnswer.length
+        }
+        if (shouldSubmit) onSubmit()
     }
 
     fun onSubmit() {
