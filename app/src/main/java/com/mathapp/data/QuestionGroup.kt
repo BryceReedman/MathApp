@@ -21,17 +21,14 @@ object QuestionGroups {
 
     fun groupRange(groupId: Int): IntRange = ((groupId - 1) * 10 + 1)..(groupId * 10)
 
-    fun totalQuestionCount(op: MathOperation, groupIds: List<Int>): Int =
-        groupIds.sumOf { id -> questionCountForGroup(op, id) }
+    /** Combined, sorted, deduplicated factor list from the given groups, minus any excluded numbers. */
+    fun buildFactorList(groupIds: List<Int>, excludedNumbers: Set<Int> = emptySet()): List<Int> =
+        groupIds.flatMap { groupRange(it) }.distinct().sorted().filter { it !in excludedNumbers }
 
-    private fun questionCountForGroup(op: MathOperation, groupId: Int): Int {
-        val range = groupRange(groupId)
-        val n = range.count()
-        return when (op) {
-            MathOperation.MULTIPLICATION -> n * n
-            MathOperation.DIVISION       -> n * n
-            MathOperation.POWERS         -> n * 3   // exp 2..4
-            MathOperation.FRACTIONS      -> range.filter { it > 1 }.sumOf { it - 1 }
-        }
+    fun totalQuestionCount(op: MathOperation, factors: List<Int>): Int = when (op) {
+        MathOperation.MULTIPLICATION -> factors.size * factors.size
+        MathOperation.DIVISION       -> factors.size * factors.size
+        MathOperation.POWERS         -> factors.size * 3
+        MathOperation.FRACTIONS      -> factors.filter { it > 1 }.sumOf { it - 1 }
     }
 }

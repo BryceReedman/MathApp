@@ -185,9 +185,10 @@ fun QuizConfigScreen(
             Button(
                 onClick = {
                     val groups = selectedGroupIds.sorted()
+                    val factors = QuestionGroups.buildFactorList(groups, excludedNumbers)
                     val count = selectedCount
                         ?: if (strugglingOnly) repository.getStrugglingCount(operation, groups)
-                        else QuestionGroups.totalQuestionCount(operation, groups)
+                        else QuestionGroups.totalQuestionCount(operation, factors)
                     onStartQuiz(groups, count.coerceAtLeast(1), strugglingOnly)
                 },
                 modifier = Modifier

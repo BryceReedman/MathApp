@@ -6,6 +6,7 @@ import com.mathapp.data.MathOperation
 import com.mathapp.data.ProgressRepository
 import com.mathapp.data.Question
 import com.mathapp.data.QuestionGenerator
+import com.mathapp.data.QuestionGroups
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,12 +55,13 @@ class QuizViewModel : ViewModel() {
         this.repository     = repository
 
         val excludedNumbers = repository.getExcludedNumbers(operation)
+        val factors = QuestionGroups.buildFactorList(groupIds, excludedNumbers)
         val strugglingKeys = if (strugglingOnly) {
             repository.getStrugglingKeys(operation, groupIds)
         } else null
 
         val pool = QuestionGenerator.buildShuffledPool(
-            operation, groupIds, excludedNumbers, strugglingKeys, totalCount
+            operation, factors, strugglingKeys, totalCount
         )
         questionQueue = ArrayDeque(pool)
 
